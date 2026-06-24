@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Document Editor</title>
+    <style>
+        body {
+            background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; display: flex; height: 100vh; overflow: hidden;
+        }
+        
+        /* 1. Left Sidebar (Tools) */
+        .left-sidebar {
+            width: 280px; background: white; padding: 20px;
+            border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 15px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05); z-index: 10;
+        }
+        textarea {
+            width: 100%; height: 200px; padding: 12px; border: 1px solid #d1d5db; 
+            border-radius: 6px; resize: none; box-sizing: border-box; font-family: inherit;
+        }
+        .btn-primary { background: #2563eb; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-success { background: #10b981; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-success:hover { background: #059669; }
+
+        /* 2. Center Workspace (Document) */
+        .workspace {
+            flex-grow: 1; display: flex; justify-content: center;
+            padding: 40px; overflow-y: auto; background-color: #e5e7eb;
+        }
+        .document {
+            background: white; width: 8.5in; min-height: 11in; padding: 1in; 
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); outline: none; 
+            line-height: 1.5; font-size: 11pt; color: #333; font-family: 'Times New Roman', Times, serif;
+        }
+        .document h1 { font-size: 24pt; margin-bottom: 5px; color: #111; text-align: center; }
+        .document p { text-align: center; margin-top: 0;}
+        .document h2 { font-size: 14pt; margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid #ccc; color: #222; }
+        .document h3 { font-size: 12pt; margin-top: 15px; margin-bottom: 5px; color: #333; }
+        .document ul { margin-top: 5px; padding-left: 25px; }
+        .document li { margin-bottom: 5px; }
+
+        ins.ai-add { background-color: #dcfce7; color: #166534; text-decoration: none; border-bottom: 2px solid #22c55e; padding: 0 2px; }
+        del.ai-remove { background-color: #fee2e2; color: #991b1b; text-decoration: line-through; padding: 0 2px; }
+
+        /* 3. Right Sidebar (Review Panel) */
+        .right-sidebar {
+            width: 320px; background: #f9fafb; border-left: 1px solid #e5e7eb; 
+            padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px;
+        }
+        .review-card {
+            background: white; border: 1px solid #e5e7eb; border-radius: 8px; 
+            padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .review-card .diff-del { color: #991b1b; text-decoration: line-through; margin-bottom: 8px; font-size: 13px; background: #fee2e2; padding: 5px; border-radius: 4px;}
+        .review-card .diff-ins { color: #166534; font-weight: bold; font-size: 13px; background: #dcfce7; padding: 5px; border-radius: 4px; margin-bottom: 12px;}
+        .btn-group { display: flex; gap: 8px; }
+        .btn-accept, .btn-reject { flex: 1; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-accept { background: #10b981; color: white; }
+        .btn-reject { background: #ef4444; color: white; }
+        .btn-accept:hover { background: #059669; }
+        .btn-reject:hover { background: #dc2626; }
+    </style>
+</head>
+<body>
+
+    <div class="left-sidebar">
+        <h2 style="margin:0; font-family: sans-serif;">Tailor Settings</h2>
+        <p style="margin:0; font-size: 13px; color: #555;">Paste a job description. The AI will suggest edits and queue them for review.</p>
+        <textarea id="jobDesc" placeholder="Job description..."></textarea>
+        <button class="btn-primary" onclick="tailorDocument()">✨ Suggest Edits</button>
+        <hr style="width: 100%; border: 0.5px solid #e5e7eb; margin: 5px 0;">
+        <button class="btn-success" onclick="exportPDF()">Download Final PDF</button>
+    </div>
+
+    <div class="workspace">
+        <div id="editor" class="document" contenteditable="true">
+            {{ content|safe }}
+        </div>
+    </div>
+
+    <div class="right-sidebar" id="review-panel">
+        <h3 style="margin: 0; font-family: sans-serif; color: #374151;">Review Changes</h3>
+        <p style="margin: 0; font-size: 13px; color: #6b7280;" id="empty-state">No pending changes. Run the AI to get suggestions.</p>
+        </div>
+
+    <script>
+        // 1. Fetch AI Tailored Document
+        async function tailorDocument() {
+            const editor = document.getElementById('editor');
+            const jobDesc = document.getElementById('jobDesc').value;
+            
+            const formData = new FormData();
+            formData.append('document', editor.innerHTML);
+            formData.append('job_description', jobDesc);
+
+            const response = await fetch('/tailor', { method: 'POST', body: formData });
+            const data = await response.json();
+            
+            editor.innerHTML = data.html;
+            
+            // Automatically build the review cards after AI returns the text
+            buildReviewPanel();
+        }
+
+        // 2. Scan Document and Build Review Cards in Right Panel
+        function buildReviewPanel() {
+            const editor = document.getElementById('editor');
+            const reviewPanel = document.getElementById('review-panel');
+            
+            // Keep the header, clear the old cards
+            reviewPanel.innerHTML = `
+                <h3 style="margin: 0; font-family: sans-serif; color: #374151;">Review Changes</h3>
+                <p style="margin: 0; font-size: 13px; color: #6b7280;" id="empty-state">All caught up!</p>
+            `;
+
+            // Find all unique edit IDs
+            const editIds = new Set();
+            editor.querySelectorAll('[data-edit-id]').forEach(el => editIds.add(el.getAttribute('data-edit-id')));
+
+            const emptyState = document.getElementById('empty-state');
+            if (editIds.size > 0) emptyState.style.display = 'none';
+
+            // Generate a card for each unique edit
+            editIds.forEach(id => {
+                const dels = editor.querySelectorAll(`del[data-edit-id="${id}"]`);
+                const ins = editor.querySelectorAll(`ins[data-edit-id="${id}"]`);
+
+                let originalText = dels.length ? dels[0].textContent : '';
+                let newText = ins.length ? ins[0].textContent : '';
+
+                const card = document.createElement('div');
+                card.className = 'review-card';
+                card.innerHTML = `
+                    ${originalText ? `<div class="diff-del">${originalText}</div>` : ''}
+                    ${newText ? `<div class="diff-ins">${newText}</div>` : ''}
+                    <div class="btn-group">
+                        <button class="btn-accept" onclick="resolveEdit('${id}', 'accept')">✓ Accept</button>
+                        <button class="btn-reject" onclick="resolveEdit('${id}', 'reject')">✕ Reject</button>
+                    </div>
+                `;
+                reviewPanel.appendChild(card);
+            });
+        }
+
+        // 3. Handle Accept/Reject Actions
+        function resolveEdit(id, action) {
+            const dels = document.querySelectorAll(`del[data-edit-id="${id}"]`);
+            const ins = document.querySelectorAll(`ins[data-edit-id="${id}"]`);
+
+            if (action === 'accept') {
+                // Delete original, keep new text
+                dels.forEach(el => el.remove());
+                ins.forEach(el => el.outerHTML = el.innerHTML); // Strip <ins> wrapper, keep content
+            } else {
+                // Revert to original, delete new text
+                ins.forEach(el => el.remove());
+                dels.forEach(el => el.outerHTML = el.innerHTML); // Strip <del> wrapper, keep content
+            }
+
+            // Re-scan the document to update the right panel (removes resolved card)
+            buildReviewPanel();
+        }
+
+        // 4. Export logic
+        function exportPDF() {
+            // Check if there are unresolved edits
+            const pending = document.querySelectorAll('[data-edit-id]').length;
+            if(pending > 0) {
+                alert("Please Accept or Reject all changes before exporting.");
+                return;
+            }
+            window.print();
+        }
+    </script>
+</body>
+</html>
